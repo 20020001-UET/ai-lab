@@ -149,9 +149,11 @@ def runExperiment(options):
     # Run the Experiment
     if len(degree) == 0:
         degree.append(3)
+
     if len(degree) == 2:
         n, m = degree
         degree = range(n, m+1)
+     
     for current_degree in degree:
         # Initialize random with seed    
         np.random.seed(options.randomSeed)
@@ -161,8 +163,11 @@ def runExperiment(options):
         model.training()
 
         # Calculate output
-        output.append([current_degree, model.rSquared(test_set.copy()), model.theta])
-        cDegree, rSquared, cTheta = output[current_degree]
+        cDegree = current_degree
+        rSquared = model.rSquared(test_set.copy())
+        cTheta = model.theta
+
+        output.append([cDegree, rSquared, cTheta])
 
         # Print model result
         import textwrap
