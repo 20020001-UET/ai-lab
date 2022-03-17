@@ -23,6 +23,7 @@ To using this module, simply import model-algorithm in your python code.
 Thank you for reading!
 """
 
+import copy
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -51,27 +52,27 @@ def plotDataset(ax, dataset, model):
     """
     plotDataSet plots the original data and the predicted ones.
     """
-    t, y = dataset
+    t, y = copy.deepcopy(dataset)
     t, y, predict = model.predicting(dataset)
     ax.plot(t, y, "ro")
     ax.plot(t, predict, "bx")
 
-def polynomialCalc(theta, x, degree):
+def polynomialCalc(theta, x):
     """
     This function is a polynomial calculator.
     """
 
     ans = np.float128(0)
     pow = np.float128(1)
-    for i in range(degree):
+    for i in range(len(theta)):
        ans = ans + theta[i]*pow
-       pow *= x
+       pow *= np.float128(x)
     return ans
 
 def costFunction(t, y, theta, degree):
     cost = np.float128(0)
     for i in range(len(t)):
-        cost += np.power(polynomialCalc(theta, t[i], degree) - y[i], 2, dtype=np.float128)
+        cost += np.power(polynomialCalc(theta, t[i]) - np.float128(y[i]), 2, dtype=np.float128)
     return cost / len(t)
 
 ##########################################################################
@@ -80,7 +81,7 @@ def costFunction(t, y, theta, degree):
 
 class FeatureScaling:
     def __init__(self, data):
-        self.data = data.copy()
+        self.data = copy.deepcopy(data)
         self.value = 0
         self.s = 1
 
@@ -95,7 +96,7 @@ class FeatureScaling:
             self.data = preProcessData(self.data, self.value, self.s)
 
 def min_maxNormalization(data):
-    tmp = data.copy()
+    tmp = copy.deepcopy(data)
 
     s = max(tmp) - min(tmp)
     minValue = min(tmp)
@@ -106,7 +107,8 @@ def min_maxNormalization(data):
     return [tmp, minValue, s]
 
 def meanNormalization(data):
-    tmp = data.copy()
+    tmp = copy.deepcopy(data)
+
 
     s = max(tmp) - min(tmp)
     mu = sum(tmp) / len(tmp)
@@ -117,10 +119,19 @@ def meanNormalization(data):
     return [tmp, mu, s]
 
 def preProcessData(data, value, s):
-    tmp = data.copy()
+    tmp = copy.deepcopy(data)
+
 
     for i in range(len(tmp)):
         tmp[i] = (tmp[i] - value) / s
+
+    return tmp
+
+def undoProcessData(data, value, s):
+    tmp = copy.deepcopy(data)
+
+    for i in range(len(tmp)):
+        tmp[i] = tmp[i] * s + value
 
     return tmp
 
@@ -138,7 +149,7 @@ class PolynomialHypothesis:
 
     """
 
-    def __init__(self, training_set, alpha, batch_size, iteration, degree, feature_scaling_method):
+    def __init__(self, training_set, alpha, batch_size, iteration, degree, feature_scaling_method, Lambda):
         """
         Constructor of Polynomial Hypothesis, there are 6 arguments:
 
@@ -152,26 +163,28 @@ class PolynomialHypothesis:
 
             (5) degree
             
-            (7) feature_scaling_method
+            (6) feature_scaling_method
+
+            (7) Lambda for Regularization
 
         """
         # Training set initialize
-        self.training_set = training_set.copy()
+        self.training_set = copy.deepcopy(training_set)
 
         # Super parameters initialize
-        self.alpha = alpha
+        self.alpha = np.float128(alpha)
         self.batch_size = batch_size
         self.iteration = iteration
 
         # Online parameters initialize
-        self.degree = degree
+        self.degree = degree + 1
 
         # Theta initialize
-        self.theta = np.zeros((degree,), dtype=np.float128)
+        self.theta = np.zeros((degree+1,), dtype=np.float128)
 
         # Feature Scaling initialize
         self.feature_scaling_method = feature_scaling_method
-        t, y = self.training_set
+        t, y = copy.deepcopy(self.training_set)
         self.t = FeatureScaling(t)
         self.y = FeatureScaling(y)
 
@@ -179,6 +192,9 @@ class PolynomialHypothesis:
         self.y.scaling(self.feature_scaling_method)
 
         self.training_set = [self.t.data, self.y.data]
+
+        # Regularization initialize
+        self.Lambda = Lambda
 
     def training(self):
         """
@@ -192,6 +208,8 @@ class PolynomialHypothesis:
         # Initialize data
         t, y = self.training_set
         m = len(t)
+        self.theta = np.zeros((self.degree,), dtype=np.float128)
+        n = len(self.theta)
 
         cost = costFunction(t, y, self.theta, self.degree)
 
@@ -200,19 +218,23 @@ class PolynomialHypothesis:
 
             for i in range(m//self.batch_size):
                 # Backup a new theta
-                tmp_theta = self.theta.copy()
+                tmp_theta = copy.deepcopy(self.theta)
                 grad_theta = np.zeros((self.degree,), dtype=np.float128)
 
-                for j in range(self.degree):
+                for j in range(n):
                     for k in range(self.batch_size):
-                        grad_theta[j] += self.alpha*(polynomialCalc(self.theta, t[i+k], self.degree) - y[i+k])*np.power(t[i+k], j, dtype=np.float128)
+                        grad_theta[j] += self.alpha*(polynomialCalc(self.theta, t[i+k]) - y[i+k])*np.power(t[i+k], j, dtype=np.float128)
                     grad_theta[j] /= self.batch_size
 
-                for j in range(self.degree):
+                    # Regularization
+                    if j != 0:
+                        grad_theta[j] += self.Lambda / m * np.power(tmp_theta[j], 2, dtype=np.float128)
+
+                for j in range(n):
                     tmp_theta[j] -= grad_theta[j]
 
                 # Save the new theta
-                self.theta = tmp_theta.copy()
+                self.theta = copy.deepcopy(tmp_theta)
 
             # Debug Gradient Descent
             current_cost = costFunction(t, y, self.theta, self.degree)
@@ -225,7 +247,7 @@ class PolynomialHypothesis:
         This function return predict result form the testing data.
         """
         # Initialize data
-        t, y = testing.copy()
+        t, y = copy.deepcopy(testing)
         m = len(t)
         predict = np.zeros((m,))
 
@@ -235,27 +257,20 @@ class PolynomialHypothesis:
 
         # Predicting the result
         for i in range(m):
-            predict[i] = polynomialCalc(self.theta, t[i], self.degree)
+            predict[i] = polynomialCalc(self.theta, t[i])
+
+        t, y = copy.deepcopy(testing)
+        predict = undoProcessData(predict, self.y.value, self.y.s)
 
         return [t, y, predict]
 
     def rSquared(self, testing):
         """
-        This function calculate the r squared (or r2 score).
+        This function calculate the r squared (or r2 score).        
         """
 
-        # Initialize data
-        t, y = testing.copy()
+        t, y, predict = self.predicting(testing)
         m = len(t)
-        predict = np.zeros((m,))
-
-        # Feature Scaling
-        t = preProcessData(t, self.t.value, self.t.s)
-        y = preProcessData(y, self.y.value, self.y.s)
-
-        # Predicting the result
-        for i in range(m):
-            predict[i] = polynomialCalc(self.theta, t[i], self.degree)
 
         y_mean = sum(y) / len(y)
         ssres = np.float128(0)
